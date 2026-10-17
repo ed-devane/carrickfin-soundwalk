@@ -52,6 +52,8 @@
   <button data-act="open">Open piece…</button>
   <button data-act="save">Save piece (.zip)</button>
   <hr>
+  <button data-act="home">Frame the strand</button>
+  <button data-act="imagery">Satellite image date…</button>
   <button data-act="basemap">Switch to street map</button>
   <button data-act="draw-perimeter">Draw perimeter by hand</button>
   <button data-act="undo">Undo</button>
@@ -59,6 +61,9 @@
   <a href="../tools/sensor-test/">Diagnostics (sensor test)</a>
   <button data-act="new" class="danger">New empty piece</button>
 </div>
+
+<!-- Imagery date picker -->
+<div id="imagery-menu" class="popover" hidden></div>
 
 <!-- Selected item -->
 <aside id="sheet" hidden></aside>
@@ -70,6 +75,7 @@
 <input type="file" id="file-audio" accept="audio/*" hidden>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate.js"></script>
 <script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.17.0/dist/leaflet-geoman.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script type="module" src="editor.js"></script>

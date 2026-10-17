@@ -11,16 +11,61 @@ const $ = (id) => document.getElementById(id);
 
 // ---------- map ----------
 // Carrickfin Atlantic strand, west of (and parallel to) the airport runway.
-// Shown until there's a perimeter to zoom to.
-const HOME = L.latLngBounds([55.0379, -8.3508], [55.0551, -8.3418]);
+//
+// The map is turned so the runway runs left–right along the bottom of the
+// screen, with the sea at the top: south rocks on the left, the north end of
+// the runway on the right. The runway's true bearing is ~20°, so "up" on
+// screen is 20° − 90° = 290° (WNW, out to sea).
+const RUNWAY_BEARING = 20;
+const VIEW_UP = (RUNWAY_BEARING + 270) % 360;
+const HOME = {
+  west: [55.0381, -8.3502],   // rocks at the south end of the strand
+  east: [55.0505, -8.3431],   // beach level with the north end of the runway
+};
 
-const map = L.map('map', { zoomControl: false, maxZoom: 21, tap: false }).fitBounds(HOME);
-const satellite = L.tileLayer(
-  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-  { maxNativeZoom: 19, maxZoom: 21, attribution: 'Imagery © Esri, Maxar, Earthstar Geographics' });
+const map = L.map('map', {
+  zoomControl: false, maxZoom: 21, zoomSnap: 0.25, tap: false,
+  rotate: true, bearing: 360 - VIEW_UP, touchRotate: false, shiftKeyRotate: false, rotateControl: false,
+});
+
+// Fit the strand across the full width of the screen (fitBounds doesn't
+// understand a rotated map, so we work out the zoom from metres per pixel).
+function goHome() {
+  const [a, b] = [L.latLng(HOME.west), L.latLng(HOME.east)];
+  const centre = L.latLng((a.lat + b.lat) / 2, (a.lng + b.lng) / 2);
+  const lengthM = a.distanceTo(b) * 1.08;                       // a little margin
+  const widthPx = map.getSize().x;
+  const mPerPxAtZ0 = 156543.03 * Math.cos(centre.lat * Math.PI / 180);
+  map.setView(centre, Math.log2(mPerPxAtZ0 * widthPx / lengthM));
+}
+
+// Satellite imagery: Esri's current mosaic mixes captures from different
+// tides along the strand, so we use dated versions from the Esri Wayback
+// archive. Capture dates checked at the middle of the strand.
+const IMAGERY = [
+  { rel: 34007, label: '31 Aug 2020 · 31 cm · ±5 m' },
+  { rel: 18358, label: '7 Nov 2011 · low tide · 30 cm · ±5 m' },
+  { rel: 11351, label: '3 May 2011 · 46 cm · ±10 m' },
+  { rel: 64001, label: '9 Apr 2024 · 50 cm · ±5 m' },
+  { rel: 63116, label: 'May 2025 (current, has a tide seam)' },
+];
+const imageryLayer = (rel) => L.tileLayer(
+  `https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/WMTS/1.0.0/default028mm/MapServer/tile/${rel}/{z}/{y}/{x}`,
+  { maxNativeZoom: 19, maxZoom: 21, attribution: 'Imagery © Esri World Imagery (Wayback), Maxar' });
+let imageryRel = IMAGERY[0].rel;
+try { imageryRel = +localStorage.getItem('imagery') || imageryRel; } catch (e) {}
+let satellite = imageryLayer(imageryRel);
 const streets = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
   { maxNativeZoom: 19, maxZoom: 21, attribution: '© OpenStreetMap contributors' });
 let basemap = satellite.addTo(map);
+
+function setImagery(rel) {
+  imageryRel = rel;
+  try { localStorage.setItem('imagery', rel); } catch (e) {}
+  const next = imageryLayer(rel);
+  if (basemap === satellite) { map.removeLayer(satellite); next.addTo(map); basemap = next; }
+  satellite = next;
+}
 L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(map);
 map.pm.setGlobalOptions({ snappable: false, allowSelfIntersection: false });
 
@@ -190,13 +235,13 @@ function onFix(pos) {
   } else {
     meMarker.setLatLng(ll); meAccuracy.setLatLng(ll); meAccuracy.setRadius(c.accuracy);
   }
-  if (followMe) { map.setView(ll, Math.max(map.getZoom(), 18)); followMe = false; }
+  if (followMe) { map.panTo(ll); followMe = false; }
   if (recording) onRecordFix(lastFix);
 }
 
 $('btn-locate').addEventListener('click', () => {
   startGps();
-  if (lastFix) map.setView([lastFix.lat, lastFix.lng], Math.max(map.getZoom(), 18));
+  if (lastFix) map.panTo([lastFix.lat, lastFix.lng]);
   else { followMe = true; toast('Finding your position…'); }
 });
 
@@ -412,7 +457,6 @@ function trackToPerimeter(track) {
   const hadOne = !!store.state.perimeter;
   store.change(s => { s.perimeter = ring; });
   select('perimeter');
-  map.fitBounds(layerById.get('perimeter').getBounds(), { padding: [40, 40] });
   const msg = `Perimeter made from ${pts.length} points → ${ring.length} corners` +
     (gap > 30 ? ` (start and end were ${Math.round(gap)} m apart, joined)` : '') + (hadOne ? '. Replaced the old one.' : '');
   toast(msg, { action: 'Undo', onAction: () => store.undo() });
@@ -463,7 +507,20 @@ function stopPreview() {
 }
 
 // ---------- menus ----------
-function closePopovers() { $('main-menu').hidden = true; $('zone-menu').hidden = true; }
+function closePopovers() { $('main-menu').hidden = true; $('zone-menu').hidden = true; $('imagery-menu').hidden = true; }
+
+function openImageryMenu() {
+  const m = $('imagery-menu');
+  m.innerHTML = IMAGERY.map(i =>
+    `<button data-rel="${i.rel}">${i.rel === imageryRel ? '● ' : '○ '}${esc(i.label)}</button>`).join('');
+  m.hidden = false;
+}
+$('imagery-menu').addEventListener('click', (e) => {
+  const rel = +e.target.closest('[data-rel]')?.dataset.rel;
+  if (!rel) return;
+  setImagery(rel);
+  openImageryMenu();   // stay open so versions can be flicked through
+});
 
 $('btn-menu').addEventListener('click', (e) => {
   e.stopPropagation();
@@ -498,6 +555,11 @@ $('main-menu').addEventListener('click', async (e) => {
     download((store.state.title || 'piece').replace(/[^\w-]+/g, '_') + '.zip', blob);
     toast(missing.length ? `Saved. Missing audio for: ${missing.join(', ')}` : 'Saved piece.json + audio as .zip');
   }
+  else if (act === 'home') goHome();
+  else if (act === 'imagery') {
+    if (basemap !== satellite) $('main-menu').querySelector('[data-act=basemap]').click();
+    openImageryMenu();
+  }
   else if (act === 'basemap') {
     map.removeLayer(basemap);
     basemap = basemap === satellite ? streets : satellite;
@@ -530,7 +592,6 @@ $('file-import').addEventListener('change', async (e) => {
     } catch (err) { toast(`${f.name}: ${err.message}`); return; }
   }
   store.change(s => { for (const r of all) { s.tracks.push(...r.tracks); s.pins.push(...r.pins); } });
-  if (overlays.getLayers().length) map.fitBounds(overlays.getBounds(), { padding: [40, 40] });
   const first = all.find(r => r.tracks.length)?.tracks[0];
   if (first) select(first.id);
   toast(`Imported ${nT} walk${nT === 1 ? '' : 's'}, ${nP} pin${nP === 1 ? '' : 's'}`);
@@ -574,10 +635,8 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ---------- start ----------
-function fitAll() {
-  if (overlays.getLayers().length) map.fitBounds(overlays.getBounds(), { padding: [40, 40], maxZoom: 18 });
-  else map.fitBounds(HOME);
-}
+// Always open on the framed strand; the perimeter sits inside it.
+function fitAll() { goHome(); }
 
 await store.load();
 render();
