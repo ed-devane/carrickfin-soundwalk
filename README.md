@@ -1,6 +1,6 @@
 # Beach Soundwalk
 
-Location-based music for Carrickfin strand, Donegal. See `beach-soundwalk-brief.md` for the brief and `PLAN.md` for the development plan.
+Location-based music for Carrickfin strand, Donegal. Composition and mapping tools by Ed Devane.
 
 Plain HTML/CSS/JS, no build step. Hosted on GitHub Pages.
 
